@@ -36,6 +36,23 @@ voxceleb_datasets = {
         "test": ["VoxCeleb2/test_wav"]
     }
 }
+aishell1_datasets = {
+    "train": ["data_aishell/wav/train"],
+    "dev": ["data_aishell/wav/dev"],
+    "test": ["data_aishell/wav/test"],
+}
+
+magicdata_datasets = {
+    "train": ["MagicData/train"],
+    "dev": ["MagicData/dev"],
+    "test": ["MagicData/test"],
+}
+
+aidatatang_datasets = {
+    "train": ["aidatatang_200zh/corpus/train"],
+    "dev": ["aidatatang_200zh/corpus/dev"],
+    "test": ["aidatatang_200zh/corpus/test"],
+}
 
 other_datasets = [
     "LJSpeech-1.1",
