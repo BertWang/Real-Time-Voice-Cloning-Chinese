@@ -1,12 +1,14 @@
 from multiprocess.pool import ThreadPool
 from encoder.params_data import *
-from encoder.config import librispeech_datasets, aishell1_datasets, magicdata_datasets, aidatatang_datasets, anglophone_nationalites
+from encoder.config import librispeech_datasets, aishell1_datasets, magicdata_datasets, aidatatang_datasets, thchs30_datasets, mozilla_datasets, primewords_datasets, anglophone_nationalites
 from datetime import datetime
 from encoder import audio
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
-
+import pandas as pd
+import json
+import os
 
 class DatasetLog:
     """
@@ -117,6 +119,65 @@ def _preprocess_speaker_dirs(speaker_dirs, dataset_name, datasets_root, out_dir,
     logger.finalize()
     print("Done preprocessing %s.\n" % dataset_name)
 
+def _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
+                             skip_existing, logger):
+
+    # Function to preprocess utterances for one speaker
+    def preprocess_speaker(args):
+        speaker, files = args
+        # Give a name to the speaker that includes its dataset
+        parts = list(speaker_dir.relative_to(datasets_root).parts)
+        parts.append(speaker)
+        speaker_name = "_".join(parts)
+        
+        # Create an output directory with that name, as well as a txt file containing a 
+        # reference to each source file.
+        speaker_out_dir = out_dir.joinpath(speaker_name)
+        speaker_out_dir.mkdir(exist_ok=True)
+        sources_fpath = speaker_out_dir.joinpath("_sources.txt")
+        
+        # There's a possibility that the preprocessing was interrupted earlier, check if 
+        # there already is a sources file.
+        if sources_fpath.exists():
+            try:
+                with sources_fpath.open("r") as sources_file:
+                    existing_fnames = {line.split(",")[0] for line in sources_file}
+            except:
+                existing_fnames = {}
+        else:
+            existing_fnames = {}
+        
+        # Gather all audio files for that speaker recursively
+        sources_file = sources_fpath.open("a" if skip_existing else "w")
+        for in_fpath, out_fname in files:
+            # Check if the target output file already exists
+            if skip_existing and out_fname in existing_fnames:
+                continue
+                
+            # Load and preprocess the waveform
+            wav = audio.preprocess_wav(in_fpath)
+            if len(wav) == 0:
+                continue
+            
+            # Create the mel spectrogram, discard those that are too short
+            frames = audio.wav_to_mel_spectrogram(wav)
+            if len(frames) < partials_n_frames:
+                continue
+            
+            out_fpath = speaker_out_dir.joinpath(out_fname)
+            np.save(out_fpath, frames)
+            logger.add_sample(duration=len(wav) / sampling_rate)
+            sources_file.write("%s,%s\n" % (out_fname, in_fpath))
+        
+        sources_file.close()
+    
+    # Process the utterances for each speaker
+    items = files_by_speakers.items()
+    with ThreadPool(1) as pool:
+        list(tqdm(pool.imap(preprocess_speaker, files_by_speakers.items()), dataset_name, len(items),
+                  unit="speakers"))
+    logger.finalize()
+    print("Done preprocessing %s.\n" % dataset_name)
 
 def preprocess_librispeech(datasets_root: Path, out_dir: Path, skip_existing=False):
     for dataset_name in librispeech_datasets["train"]["other"]:
@@ -208,4 +269,85 @@ def preprocess_aidatatang(datasets_root: Path, out_dir: Path, skip_existing=Fals
         # Preprocess all speakers
         speaker_dirs = list(dataset_root.glob("*"))
         _preprocess_speaker_dirs(speaker_dirs, dataset_name, datasets_root, out_dir, "wav",
+                                 skip_existing, logger)
+
+def preprocess_thchs30(datasets_root: Path, out_dir: Path, skip_existing=False):
+    for dataset_name in thchs30_datasets["test"]:
+        # Initialize the preprocessing
+        dataset_root, logger = _init_preprocess_dataset(dataset_name, datasets_root, out_dir)
+        if not dataset_root:
+            return
+        
+        extension = "wav"
+        speaker_dir = datasets_root.joinpath(dataset_name)
+
+        files_by_speakers = {}
+        for in_fpath in speaker_dir.glob("*.%s" % extension):
+            in_fname = "_".join(in_fpath.relative_to(speaker_dir).parts)
+            out_fname = in_fname.replace(".%s" % extension, ".npy")
+            speaker, serial = out_fname.split('.')[0].split('_')
+            if speaker not in files_by_speakers:
+                files_by_speakers[speaker] = []
+            files_by_speakers[speaker].append([in_fpath, out_fname])
+        
+        # Preprocess all speakers
+        _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
+                                 skip_existing, logger)
+
+def preprocess_mozilla(datasets_root: Path, out_dir: Path, skip_existing=False):
+    ds = mozilla_datasets["validated"]
+    ds_file = datasets_root.joinpath(ds)
+    dataset_name = os.path.dirname(ds)
+
+    # Initialize the preprocessing
+    dataset_root, logger = _init_preprocess_dataset(dataset_name, datasets_root, out_dir)
+    if not dataset_root:
+        return
+
+    extension = "mp3"
+    speaker_dir = datasets_root.joinpath(dataset_name).joinpath('clips')
+
+    data = pd.read_csv(ds_file, sep='\t', header=0)
+
+    files_by_speakers = {}
+    for index, row in data.iterrows():
+        speaker = row['client_id']
+        in_fname = row['path']
+        in_fpath = speaker_dir.joinpath(in_fname)
+        out_fname = in_fname.replace(".%s" % extension, ".npy")
+        if speaker not in files_by_speakers:
+            files_by_speakers[speaker] = []
+        files_by_speakers[speaker].append([in_fpath, out_fname])
+
+    # Preprocess all speakers
+    _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
+                                skip_existing, logger)
+
+def preprocess_primewords(datasets_root: Path, out_dir: Path, skip_existing=False):
+    dataset_name = primewords_datasets
+    # Initialize the preprocessing
+    dataset_root, logger = _init_preprocess_dataset(dataset_name, datasets_root, out_dir)
+    if not dataset_root:
+        return
+
+    extension = "wav"
+    speaker_dir = datasets_root.joinpath(dataset_name).joinpath('audio_files')
+
+    ds_file = str(datasets_root.joinpath(dataset_name).joinpath('set1_transcript.json'))
+
+    with open(ds_file) as f:
+        data=json.load(f)
+
+        files_by_speakers = {}
+        for row in data:
+            speaker = row['user_id']
+            in_fname = row['file']
+            in_fpath = speaker_dir.joinpath(in_fname[0]).joinpath(in_fname[0:2]).joinpath(in_fname)
+            out_fname = in_fname.replace(".%s" % extension, ".npy")
+            if speaker not in files_by_speakers:
+                files_by_speakers[speaker] = []
+            files_by_speakers[speaker].append([in_fpath, out_fname])
+
+        # Preprocess all speakers
+        _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
                                  skip_existing, logger)

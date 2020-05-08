@@ -54,6 +54,21 @@ aidatatang_datasets = {
     "test": ["aidatatang_200zh/corpus/test"],
 }
 
+thchs30_datasets = {
+    "train": ["data_thchs30/train"],
+    "dev": ["data_thchs30/dev"],
+    "test": ["data_thchs30/test"],
+}
+
+mozilla_datasets = {
+    "train": "Mozilla/train.tsv",
+    "dev": "Mozilla/test.tsv",
+    "test": "Mozilla/train.tsv",
+    "validated": "Mozilla/validated.tsv",
+}
+
+primewords_datasets = "primewords_md_2018_set1"
+
 other_datasets = [
     "LJSpeech-1.1",
     "VCTK-Corpus/wav48",
