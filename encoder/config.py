@@ -67,6 +67,8 @@ mozilla_datasets = {
     "validated": "Mozilla/validated.tsv",
 }
 
+stcmds_datasets = "ST-CMDS-20170001_1-OS"
+
 primewords_datasets = "primewords_md_2018_set1"
 
 other_datasets = [

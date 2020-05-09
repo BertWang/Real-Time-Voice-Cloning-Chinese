@@ -1,6 +1,6 @@
 from multiprocess.pool import ThreadPool
 from encoder.params_data import *
-from encoder.config import librispeech_datasets, aishell1_datasets, magicdata_datasets, aidatatang_datasets, thchs30_datasets, mozilla_datasets, primewords_datasets, anglophone_nationalites
+from encoder.config import librispeech_datasets, aishell1_datasets, magicdata_datasets, aidatatang_datasets, thchs30_datasets, mozilla_datasets, primewords_datasets, stcmds_datasets, anglophone_nationalites
 from datetime import datetime
 from encoder import audio
 from pathlib import Path
@@ -155,8 +155,12 @@ def _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out
                 continue
                 
             # Load and preprocess the waveform
-            wav = audio.preprocess_wav(in_fpath)
-            if len(wav) == 0:
+            try:
+                wav = audio.preprocess_wav(in_fpath)
+                if len(wav) == 0:
+                    continue
+            except:
+                print('wave preprocess error')
                 continue
             
             # Create the mel spectrogram, discard those that are too short
@@ -173,7 +177,7 @@ def _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out
     
     # Process the utterances for each speaker
     items = files_by_speakers.items()
-    with ThreadPool(1) as pool:
+    with ThreadPool(8) as pool:
         list(tqdm(pool.imap(preprocess_speaker, files_by_speakers.items()), dataset_name, len(items),
                   unit="speakers"))
     logger.finalize()
@@ -272,7 +276,7 @@ def preprocess_aidatatang(datasets_root: Path, out_dir: Path, skip_existing=Fals
                                  skip_existing, logger)
 
 def preprocess_thchs30(datasets_root: Path, out_dir: Path, skip_existing=False):
-    for dataset_name in thchs30_datasets["test"]:
+    for dataset_name in thchs30_datasets["train"]:
         # Initialize the preprocessing
         dataset_root, logger = _init_preprocess_dataset(dataset_name, datasets_root, out_dir)
         if not dataset_root:
@@ -351,3 +355,26 @@ def preprocess_primewords(datasets_root: Path, out_dir: Path, skip_existing=Fals
         # Preprocess all speakers
         _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
                                  skip_existing, logger)
+
+def preprocess_stcmds(datasets_root: Path, out_dir: Path, skip_existing=False):
+    dataset_name = stcmds_datasets
+    # Initialize the preprocessing
+    dataset_root, logger = _init_preprocess_dataset(dataset_name, datasets_root, out_dir)
+    if not dataset_root:
+        return
+
+    extension = "wav"
+    speaker_dir = datasets_root.joinpath(dataset_name)
+
+    files_by_speakers = {}
+    for in_fpath in speaker_dir.glob("*.%s" % extension):
+        in_fname = os.path.basename(in_fpath)
+        speaker = in_fname[9:15]
+        out_fname = in_fname.replace(".%s" % extension, ".npy")
+        if speaker not in files_by_speakers:
+            files_by_speakers[speaker] = []
+        files_by_speakers[speaker].append([in_fpath, out_fname])
+
+    # Preprocess all speakers
+    _preprocess_speaker_with_files(speaker_dir, dataset_name, datasets_root, out_dir, files_by_speakers,
+                                skip_existing, logger)
